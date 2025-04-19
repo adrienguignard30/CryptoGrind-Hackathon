@@ -1,0 +1,30 @@
+{
+  "tweets": [
+    {
+      "id": "1911158667698749614",
+      "action": "like",
+      "description": "Likez le tweet de @bearish_af sur le hackathon $GRIND pour gagner 1 ticket",
+      "tickets": 1
+    },
+    {
+      "id": "1911158667698749614",
+      "action": "retweet",
+      "description": "Retweetez le tweet de @bearish_af sur le hackathon $GRIND pour gagner 2 tickets",
+      "tickets": 2
+    }
+  ],
+  "follows": [
+    {
+      "accountId": "1516790230587113473",
+      "accountUsername": "bearish_af",
+      "description": "Suivez @bearish_af pour gagner 2 tickets",
+      "tickets": 2
+    },
+    {
+      "accountId": "1621890630587113473",
+      "accountUsername": "GrindTheCoin",
+      "description": "Suivez @GrindTheCoin pour gagner 2 tickets",
+      "tickets": 2
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+const path = require('path');
+
+module.exports = function override(config) {
+  // Ajoute un alias pour résoudre les imports
+  config.resolve = {
+    ...config.resolve,
+    alias: {
+      ...config.resolve.alias,
+      // Ajoute des alias si nécessaire
+    },
+  };
+
+  // Ajoute un fallback pour les modules Node.js (si nécessaire pour `wagmi` ou `viem`)
+  config.resolve.fallback = {
+    ...config.resolve.fallback,
+    crypto: require.resolve('crypto-browserify'),
+    stream: require.resolve('stream-browserify'),
+    buffer: require.resolve('buffer/'),
+  };
+
+  return config;
+};

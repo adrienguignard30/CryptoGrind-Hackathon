@@ -1,0 +1,21 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Styles personnalisés (optionnel) */
+@layer components {
+  .custom-class {
+    @apply text-blue-500;
+  }
+}
+
+/* Classe personnalisée pour forcer la taille du titre */
+.custom-title {
+  font-size: 80px !important;
+}
+
+@media (min-width: 768px) {
+  .custom-title {
+    font-size: 120px !important;
+  }
+}
