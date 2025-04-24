@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { GrindContext } from '../App';
+import { useSendTransaction } from 'wagmi';
+import { parseEther } from 'viem';
+import axios from 'axios';
 
 function Missions() {
-  const { grindBalance, buyGrind } = useContext(GrindContext);
+  const { grindBalance, account } = useContext(GrindContext);
 
-  // État pour les tickets de l'utilisateur, le total des tickets et les participants
   const [tickets, setTickets] = useState(() => parseInt(localStorage.getItem('userTickets')) || 0);
   const [totalTickets, setTotalTickets] = useState(() => parseInt(localStorage.getItem('totalTickets')) || 0);
   const [participants, setParticipants] = useState(() => {
@@ -13,22 +15,42 @@ function Missions() {
   });
   const [userTicketsInLottery, setUserTicketsInLottery] = useState(0);
   const [lastLotteryDate, setLastLotteryDate] = useState(() => localStorage.getItem('lastLotteryDate') || null);
-  const [missionsStatus, setMissionsStatus] = useState({
-    xLike: false,
-    xRetweet: false,
-    xFollow: false,
-    abstractVote: false,
+  const [missionsStatus, setMissionsStatus] = useState(() => {
+    const savedMissions = localStorage.getItem(`missionsStatus_${account}`);
+    return savedMissions ? JSON.parse(savedMissions) : {
+      tweet1Like: false,
+      tweet1Retweet: false,
+      tweet1Reply: false,
+      tweet2Like: false,
+      tweet2Retweet: false,
+      tweet2Reply: false,
+      tweet3Like: false,
+      tweet3Retweet: false,
+      tweet3Reply: false,
+      abstractVote: false,
+    };
   });
+  const [userXId, setUserXId] = useState(() => localStorage.getItem(`xUserId_${account}`) || null);
+  const [tweetsDetails, setTweetsDetails] = useState([]);
 
-  // Sauvegarde des données dans localStorage
+  const tweets = [
+    { id: 'tweet1', tweetId: '1911158667698749614', url: 'https://x.com/bearish_af/status/1911158667698749614', text: 'Tweet by @bearish_af - Join the $GRIND vibe!' },
+    { id: 'tweet2', tweetId: '1912563448463995040', url: 'https://x.com/Adrienfam_arts/status/1912563448463995040', text: 'Tweet by @Adrienfam_arts - Amazing $GRIND art!' },
+    { id: 'tweet3', tweetId: '1912265705359110144', url: 'https://x.com/Adrienfam_a/status/1912265705359110144', text: 'Tweet by @Adrienfam_a' },
+  ];
+
+  const { sendTransaction, isLoading, isSuccess, error } = useSendTransaction();
+  const LOTTERY_ADDRESS = '0x62100eBD5A41133723e91613755AB8dc65C3a13D';
+
   useEffect(() => {
     localStorage.setItem('userTickets', tickets.toString());
     localStorage.setItem('totalTickets', totalTickets.toString());
     localStorage.setItem('lotteryParticipants', JSON.stringify(participants));
     localStorage.setItem('lastLotteryDate', lastLotteryDate || '');
-  }, [tickets, totalTickets, participants, lastLotteryDate]);
+    localStorage.setItem(`missionsStatus_${account}`, JSON.stringify(missionsStatus));
+    if (userXId) localStorage.setItem(`xUserId_${account}`, userXId);
+  }, [tickets, totalTickets, participants, lastLotteryDate, missionsStatus, userXId, account]);
 
-  // Vérifier automatiquement la loterie tous les 1000 tickets
   useEffect(() => {
     if (totalTickets >= 1000) {
       if (!lastLotteryDate || new Date(lastLotteryDate).getTime() < new Date().getTime() - 1000 * 60) {
@@ -37,182 +59,142 @@ function Missions() {
     }
   }, [totalTickets]);
 
-  // Fonction pour vérifier les actions sur X (like, retweet, follow)
-  const verifyXAction = async (actionType) => {
-    // Remplace ceci par ta clé API ou ton Bearer Token pour X
-    const X_API_TOKEN = 'YOUR_X_API_TOKEN'; // À remplacer
-
-    try {
-      // Exemple d'URL de l'API X (v2) pour vérifier une action
-      let endpoint;
-      if (actionType === 'like') {
-        endpoint = 'https://api.x.com/2/users/me/likes';
-      } else if (actionType === 'retweet') {
-        endpoint = 'https://api.x.com/2/users/me/retweets';
-      } else if (actionType === 'follow') {
-        endpoint = 'https://api.x.com/2/users/me/following';
+  useEffect(() => {
+    const fetchTweetsDetails = async () => {
+      const X_API_TOKEN = process.env.REACT_APP_X_API_TOKEN;
+      if (!X_API_TOKEN) {
+        console.error('Bearer Token manquant dans les variables d\'environnement');
+        return;
       }
 
-      // Simuler une vérification (remplace ceci par une vraie requête API)
-      console.log(`Vérification de l'action ${actionType} sur X...`);
+      const tweetId = tweets[0].tweetId;
+      try {
+        const response = await axios.get(`https://cors-anywhere.herokuapp.com/https://api.x.com/2/tweets/${tweetId}`, {
+          params: { 'tweet.fields': 'text,created_at' },
+          headers: { Authorization: `Bearer ${X_API_TOKEN}` },
+        });
 
-      // Exemple de requête (à décommenter et adapter avec une vraie API)
-      /*
-      const response = await fetch(endpoint, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${X_API_TOKEN}`,
-        },
+        setTweetsDetails([{
+          id: response.data.data.id,
+          text: response.data.data.text,
+          image: null,
+        }]);
+      } catch (error) {
+        console.error('Erreur lors de la récupération des tweets :', error.response?.data || error.message);
+        setTweetsDetails(tweets.map(tweet => ({ id: tweet.tweetId, text: tweet.text, image: null })));
+      }
+    };
+
+    fetchTweetsDetails();
+  }, []);
+
+  const connectXAccount = async () => {
+    const X_CLIENT_ID = process.env.REACT_APP_X_CLIENT_ID;
+    if (!X_CLIENT_ID) return console.error('Client ID manquant dans les variables d\'environnement');
+    const redirectUri = 'http://localhost:3001/callback';
+    const authUrl = `https://api.x.com/2/oauth2/authorize?client_id=${X_CLIENT_ID}&redirect_uri=${redirectUri}&scope=tweet.read%20users.read%20likes.read&response_type=code&state=state123`;
+    window.location.href = authUrl;
+  };
+
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const code = urlParams.get('code');
+    if (code) {
+      const X_CLIENT_ID = process.env.REACT_APP_X_CLIENT_ID;
+      const X_CLIENT_SECRET = process.env.REACT_APP_X_CLIENT_SECRET;
+      if (!X_CLIENT_ID || !X_CLIENT_SECRET) return console.error('Client ID ou Client Secret manquant dans les variables d\'environnement');
+      axios.post('https://cors-anywhere.herokuapp.com/https://api.x.com/2/oauth2/token', {
+        code,
+        grant_type: 'authorization_code',
+        client_id: X_CLIENT_ID,
+        client_secret: X_CLIENT_SECRET,
+        redirect_uri: 'http://localhost:3001/callback',
+      }).then(response => {
+        const accessToken = response.data.access_token;
+        axios.get('https://cors-anywhere.herokuapp.com/https://api.x.com/2/users/me', {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }).then(userResponse => {
+          const userId = userResponse.data.data.id;
+          setUserXId(userId);
+          localStorage.setItem(`xUserId_${account}`, userId);
+        });
+      }).catch(error => {
+        console.error('Erreur lors du callback OAuth :', error.response?.data || error.message);
       });
-      const data = await response.json();
-      if (actionType === 'like' || actionType === 'retweet') {
-        // Vérifie si l'utilisateur a liké ou retweeté un post spécifique
-        const postId = 'POST_ID'; // Remplace par l'ID du post cible
-        return data.data.some((item) => item.id === postId);
-      } else if (actionType === 'follow') {
-        // Vérifie si l'utilisateur suit un compte spécifique
-        const accountId = 'ACCOUNT_ID'; // Remplace par l'ID du compte cible
-        return data.data.some((user) => user.id === accountId);
-      }
-      */
+    }
+  }, [account]);
 
-      // Simulation pour les tests (à supprimer une fois l'API intégrée)
-      return true; // Simule une action réussie
-    } catch (error) {
-      console.error(`Erreur lors de la vérification de l'action ${actionType} sur X:`, error);
+  const buyTicketWithETH = () => {
+    const ticketPriceETH = '0.01';
+    if (!account) return alert('Veuillez connecter votre wallet.');
+    if (parseInt(grindBalance) < parseEther(ticketPriceETH)) return alert(`Solde ETH insuffisant ! Vous avez besoin de ${ticketPriceETH} ETH pour acheter un ticket.`);
+    sendTransaction({ to: LOTTERY_ADDRESS, value: parseEther(ticketPriceETH) });
+  };
+
+  useEffect(() => {
+    if (isSuccess) {
+      setTickets(prev => prev + 1);
+      setTotalTickets(prev => prev + 1);
+      alert('Vous avez acheté un ticket pour la loterie avec 0.01 ETH !');
+    }
+    if (error) alert(`Erreur lors de l'achat du ticket : ${error.message}`);
+  }, [isSuccess, error]);
+
+  const verifyXAction = async (actionType, tweetId) => {
+    if (!userXId) {
+      alert('Veuillez connecter votre compte X pour vérifier les actions.');
       return false;
     }
+    alert('Vérification désactivée temporairement. Simule un succès.');
+    return true;
   };
 
-  // Fonction pour vérifier un vote sur Abstract
   const verifyAbstractVote = async () => {
-    // À remplacer par une vraie intégration de l'API Abstract
     console.log('Vérification du vote sur Abstract...');
-    // Simulation pour les tests
-    return true; // Simule un vote réussi
+    return true;
   };
 
-  // Compléter une mission et attribuer des tickets
-  const completeMission = async (action) => {
+  const completeMission = async (action, tweetId = null) => {
     let ticketsToAdd = 0;
     let missionCompleted = false;
+    let missionKey = action;
 
-    if (action === 'xLike') {
-      if (missionsStatus.xLike) {
-        alert('Mission déjà complétée : Like sur X.');
-        return;
-      }
-      missionCompleted = await verifyXAction('like');
-      ticketsToAdd = 1; // 1 ticket pour un like
-    } else if (action === 'xRetweet') {
-      if (missionsStatus.xRetweet) {
-        alert('Mission déjà complétée : Retweet sur X.');
-        return;
-      }
-      missionCompleted = await verifyXAction('retweet');
-      ticketsToAdd = 2; // 2 tickets pour un retweet
-    } else if (action === 'xFollow') {
-      if (missionsStatus.xFollow) {
-        alert('Mission déjà complétée : Follow sur X.');
-        return;
-      }
-      missionCompleted = await verifyXAction('follow');
-      ticketsToAdd = 2; // 2 tickets pour un follow
+    if (tweetId) missionKey = `${tweetId}${action}`;
+    if (missionsStatus[missionKey]) return alert(`Mission déjà complétée : ${action}.`);
+
+    if (action === 'Like' || action === 'Retweet' || action === 'Reply') {
+      missionCompleted = await verifyXAction(action.toLowerCase(), tweetId);
+      ticketsToAdd = action === 'Like' ? 1 : 2;
     } else if (action === 'abstractVote') {
-      if (missionsStatus.abstractVote) {
-        alert('Mission déjà complétée : Vote sur Abstract.');
-        return;
-      }
       missionCompleted = await verifyAbstractVote();
-      ticketsToAdd = 1; // À ajuster selon les besoins
+      ticketsToAdd = 1;
     }
 
     if (missionCompleted) {
-      setTickets((prev) => prev + ticketsToAdd);
-      setTotalTickets((prev) => prev + ticketsToAdd);
-      setMissionsStatus((prev) => ({ ...prev, [action]: true }));
+      setTickets(prev => prev + ticketsToAdd);
+      setTotalTickets(prev => prev + ticketsToAdd);
+      setMissionsStatus(prev => ({ ...prev, [missionKey]: true }));
       alert(`Mission complétée : ${action} ! +${ticketsToAdd} ticket(s)`);
     } else {
       alert(`Échec de la vérification pour la mission : ${action}. Veuillez réessayer.`);
     }
   };
 
-  // Acheter un ticket avec $GRIND (via Abstract testnet)
-  const buyTicketWithGrind = async () => {
-    const ticketPriceGrind = 10; // 1 ticket = 10 $GRIND
-    const ticketPriceAbstract = ticketPriceGrind * 0.0001; // 1 $GRIND = 0.0001 $ABSTRACT
-
-    if (grindBalance < ticketPriceGrind) {
-      alert(`Solde $GRIND insuffisant ! Vous avez besoin de ${ticketPriceGrind} $GRIND pour acheter un ticket.`);
-      return;
-    }
-
-    try {
-      // Simuler une transaction sur Abstract testnet
-      console.log(`Transaction sur Abstract testnet : Paiement de ${ticketPriceAbstract} $ABSTRACT...`);
-
-      // Exemple de requête (à remplacer par une vraie interaction avec Abstract)
-      /*
-      const response = await fetch('ABSTRACT_TESTNET_ENDPOINT', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer YOUR_ABSTRACT_API_KEY`,
-        },
-        body: JSON.stringify({
-          amount: ticketPriceAbstract,
-          user: 'Utilisateur',
-        }),
-      });
-      const data = await response.json();
-      if (!data.success) throw new Error('Transaction échouée');
-      */
-
-      // Simulation pour les tests
-      const transactionSuccess = true; // Simule une transaction réussie
-
-      if (transactionSuccess) {
-        buyGrind(-ticketPriceGrind); // Réduire le solde $GRIND
-        setTickets((prev) => prev + 1);
-        setTotalTickets((prev) => prev + 1);
-        alert(`Vous avez acheté un ticket pour la loterie avec ${ticketPriceGrind} $GRIND (${ticketPriceAbstract} $ABSTRACT) !`);
-      } else {
-        alert('Échec de la transaction sur Abstract testnet. Veuillez réessayer.');
-      }
-    } catch (error) {
-      console.error('Erreur lors de l\'achat du ticket:', error);
-      alert('Une erreur est survenue lors de l\'achat du ticket. Veuillez réessayer.');
-    }
-  };
-
-  // Rejoindre la loterie
   const joinLottery = (ticketCount) => {
-    if (ticketCount > tickets) {
-      alert("Vous n'avez pas assez de tickets !");
-      return;
-    }
-    if (ticketCount <= 0) {
-      alert("Veuillez entrer un nombre de tickets supérieur à 0.");
-      return;
-    }
+    if (ticketCount > tickets) return alert("Vous n'avez pas assez de tickets !");
+    if (ticketCount <= 0) return alert("Veuillez entrer un nombre de tickets supérieur à 0.");
 
-    const updatedParticipants = [...participants, { user: 'Utilisateur', tickets: ticketCount }];
+    const updatedParticipants = [...participants, { user: account || 'Utilisateur', tickets: ticketCount }];
     setParticipants(updatedParticipants);
-    setTickets((prev) => prev - ticketCount);
-    setUserTicketsInLottery((prev) => prev + ticketCount);
+    setTickets(prev => prev - ticketCount);
+    setUserTicketsInLottery(prev => prev + ticketCount);
     alert(`Vous avez rejoint la loterie avec ${ticketCount} tickets !`);
   };
 
-  // Tirer la loterie
   const drawLottery = () => {
-    // Autoriser le tirage même si totalTickets < 1000 (bouton forcer)
     const totalLotteryTickets = participants.reduce((sum, p) => sum + p.tickets, 0);
-    if (totalLotteryTickets === 0) {
-      alert("Aucun participant dans la loterie !");
-      return;
-    }
+    if (totalLotteryTickets === 0) return alert("Aucun participant dans la loterie !");
 
-    // Tirage au sort basé sur le nombre de tickets
     const randomTicket = Math.floor(Math.random() * totalLotteryTickets);
     let cumulativeTickets = 0;
     let winner = null;
@@ -225,11 +207,7 @@ function Missions() {
       }
     }
 
-    if (winner) {
-      alert(`${winner.user} a gagné un paquet de café Making Coffee avec ${winner.tickets} tickets !`);
-    }
-
-    // Réinitialiser la loterie
+    if (winner) alert(`${winner.user} a gagné un paquet de café Making Coffee avec ${winner.tickets} tickets !`);
     setParticipants([]);
     setTotalTickets(0);
     setUserTicketsInLottery(0);
@@ -237,52 +215,59 @@ function Missions() {
   };
 
   return (
-    <div className="p-4 text-center">
+    <div className="p-4 text-center" style={{ backgroundColor: '#1a3c34', minHeight: '100vh' }}>
       <h1 className="text-2xl font-bold mb-4 text-white">Missions et Loterie</h1>
-
-      {/* Section Missions */}
       <div className="mb-8">
         <h2 className="text-xl font-bold mb-2 text-white">Missions</h2>
         <div className="bg-white p-6 rounded-lg shadow-md">
           <p className="text-lg mb-4">Nombre de tickets : {tickets}</p>
-          <p className="text-lg mb-4">Solde $GRIND : {grindBalance}</p>
+          <p className="text-lg mb-4">Solde ETH : {(parseInt(grindBalance) / 1e18).toFixed(4)} ETH</p>
           <p className="text-lg mb-4">Total des tickets (tous les joueurs) : {totalTickets}</p>
-          <div className="space-y-4">
-            <button
-              onClick={() => completeMission('xLike')}
-              className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
-            >
-              Like sur X (+1 ticket)
-            </button>
-            <button
-              onClick={() => completeMission('xRetweet')}
-              className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
-            >
-              Retweet sur X (+2 tickets)
-            </button>
-            <button
-              onClick={() => completeMission('xFollow')}
-              className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
-            >
-              Follow sur X (+2 tickets)
-            </button>
-            <button
-              onClick={() => completeMission('abstractVote')}
-              className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
-            >
+          {!userXId && (
+            <div className="mb-4">
+              <button onClick={connectXAccount} className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+                Connecter le compte X
+              </button>
+            </div>
+          )}
+          <div className="space-y-6">
+            {tweets.map((tweet) => {
+              const tweetDetail = tweetsDetails.find(td => td.id === tweet.tweetId);
+              return (
+                <div key={tweet.id} className="border p-4 rounded-lg">
+                  <a href={tweet.url} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
+                    {tweetDetail?.text || tweet.text}
+                  </a>
+                  {tweetDetail?.image && (
+                    <div className="mt-2 flex justify-center">
+                      <img src={tweetDetail.image} alt="Tweet Media" className="max-w-full h-auto rounded-lg shadow-lg transition-transform duration-300 hover:scale-105" style={{ maxWidth: '500px' }} />
+                    </div>
+                  )}
+                  <div className="mt-2 space-x-2">
+                    <button onClick={() => completeMission('Like', tweet.id)} disabled={!userXId} className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 disabled:bg-gray-400">
+                      Like (+1 ticket)
+                    </button>
+                    <button onClick={() => completeMission('Retweet', tweet.id)} disabled={!userXId} className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 disabled:bg-gray-400">
+                      Retweet (+2 tickets)
+                    </button>
+                    <button onClick={() => completeMission('Reply', tweet.id)} disabled={!userXId} className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 disabled:bg-gray-400">
+                      Reply (+2 tickets)
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="space-y-4 mt-6">
+            <button onClick={() => completeMission('abstractVote')} className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
               Voter sur Abstract (+1 ticket)
             </button>
-            <button
-              onClick={buyTicketWithGrind}
-              className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
-            >
-              Acheter un ticket avec 10 $GRIND
+            <button onClick={buyTicketWithETH} disabled={isLoading} className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">
+              {isLoading ? 'Achat en cours...' : 'Acheter un ticket avec 0.01 ETH'}
             </button>
           </div>
         </div>
       </div>
-
-      {/* Section Loterie */}
       <div>
         <h2 className="text-xl font-bold mb-2 text-white">Loterie</h2>
         <div className="bg-white p-6 rounded-lg shadow-md">
@@ -295,24 +280,12 @@ function Missions() {
           <div className="space-y-4">
             <div>
               <label className="block mb-1">Nombre de tickets à utiliser :</label>
-              <input
-                type="number"
-                min="1"
-                max={tickets}
-                onChange={(e) => setUserTicketsInLottery(parseInt(e.target.value) || 0)}
-                className="border p-2 rounded w-32"
-              />
-              <button
-                onClick={() => joinLottery(userTicketsInLottery)}
-                className="ml-2 bg-purple-500 text-white px-4 py-2 rounded hover:bg-purple-600"
-              >
+              <input type="number" min="1" max={tickets} onChange={(e) => setUserTicketsInLottery(parseInt(e.target.value) || 0)} className="border p-2 rounded w-32" />
+              <button onClick={() => joinLottery(userTicketsInLottery)} className="ml-2 bg-purple-500 text-white px-4 py-2 rounded hover:bg-purple-600">
                 Participer à la loterie
               </button>
             </div>
-            <button
-              onClick={drawLottery}
-              className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
-            >
+            <button onClick={drawLottery} className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600">
               Forcer le tirage
             </button>
           </div>

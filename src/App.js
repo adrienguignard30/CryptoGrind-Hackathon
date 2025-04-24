@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { WagmiConfig, createConfig } from 'wagmi';
+import { WagmiProvider, createConfig } from 'wagmi';
+import { useAccount } from 'wagmi';
 import { createPublicClient, http } from 'viem';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { injected } from '@wagmi/connectors';
+import { injected, walletConnect } from '@wagmi/connectors';
 import Header from './components/Header';
 import Home from './pages/Home';
 import Notifications from './pages/Notifications';
@@ -39,7 +40,18 @@ const queryClient = new QueryClient();
 
 const config = createConfig({
   chains: [abstractTestnet],
-  connectors: [injected()],
+  connectors: [
+    injected({ target: 'metaMask' }),
+    walletConnect({
+      projectId: '2471fc52b74931df68f43e44f96078b0',
+      metadata: {
+        name: 'CryptoGrind',
+        description: 'CryptoGrind DApp',
+        url: 'http://localhost:3001',
+        icons: ['https://your-app-url.com/icon.png'],
+      },
+    }),
+  ],
   client: ({ chain }) =>
     createPublicClient({
       chain,
@@ -49,101 +61,94 @@ const config = createConfig({
 
 export const GrindContext = React.createContext();
 
-function App() {
+function AppContent() {
   const [grindBalance, setGrindBalance] = useState(0);
   const [account, setAccount] = useState(null);
   const [projects, setProjects] = useState([]);
+  const { address, isConnected } = useAccount();
 
-  // Charger les projets depuis localStorage en fonction de l'account
+  useEffect(() => {
+    if (isConnected && address) {
+      console.log('Mise à jour account:', address);
+      setAccount(address.toLowerCase());
+    } else {
+      console.log('Aucun account connecté');
+      setAccount(null);
+    }
+  }, [address, isConnected]);
+
+  useEffect(() => {
+    if (account) {
+      const checkBalanceManually = async () => {
+        try {
+          const client = createPublicClient({
+            chain: abstractTestnet,
+            transport: http(),
+          });
+          const balance = await client.getBalance({ address: account });
+          setGrindBalance(balance.toString());
+        } catch (error) {
+          console.error('Erreur requête manuelle solde:', error);
+        }
+      };
+      checkBalanceManually();
+    }
+  }, [account]);
+
   useEffect(() => {
     if (account) {
       const savedProjects = localStorage.getItem(`projects_${account}`);
       console.log('Chargement projets depuis localStorage:', savedProjects);
       setProjects(savedProjects ? JSON.parse(savedProjects) : []);
     } else {
-      setProjects([]);
+      setProjects([]); // Correction ajoutée ici
     }
   }, [account]);
 
-  // Synchroniser localStorage avec l'état projects
   useEffect(() => {
-    if (account) {
+    if (account && projects.length > 0) {
       console.log('Sauvegarde projets dans localStorage:', projects);
       localStorage.setItem(`projects_${account}`, JSON.stringify(projects));
     }
   }, [projects, account]);
 
   const handleAddProject = (project) => {
-    setProjects((prevProjects) => {
-      const updatedProjects = [...prevProjects, project];
-      console.log('Nouveau projet ajouté:', project);
-      return updatedProjects;
-    });
+    setProjects((prevProjects) => [...prevProjects, project]);
   };
 
-  useEffect(() => {
-    const checkConnection = async () => {
-      try {
-        const accounts = await window.ethereum.request({ method: 'eth_accounts' });
-        if (accounts.length > 0) {
-          const normalizedAccount = accounts[0].toLowerCase();
-          console.log('MetaMask connecté, adresse:', normalizedAccount);
-          setAccount(normalizedAccount);
-        } else {
-          console.log('Aucun compte MetaMask connecté');
-        }
-      } catch (error) {
-        console.error('Erreur vérification connexion:', error);
-      }
-    };
-
-    checkConnection();
-
-    window.ethereum?.on('accountsChanged', (accounts) => {
-      if (accounts.length > 0) {
-        const normalizedAccount = accounts[0].toLowerCase();
-        console.log('Nouveau compte détecté:', normalizedAccount);
-        setAccount(normalizedAccount);
-      } else {
-        console.log('Déconnexion détectée');
-        setAccount(null);
-      }
-    });
-
-    return () => {
-      window.ethereum?.removeListener('accountsChanged');
-    };
-  }, []);
-
-  console.log('Projets actuels:', projects);
-
   return (
-    <WagmiConfig config={config}>
-      <QueryClientProvider client={queryClient}>
-        <GrindContext.Provider value={{ grindBalance, account }}>
-          <Router>
-            <Header />
-            <Routes>
-              <Route
-                path="/"
-                element={
-                  <Home
-                    projects={projects}
-                    setProjects={setProjects}
-                    handleAddProject={handleAddProject}
-                  />
-                }
+    <GrindContext.Provider value={{ grindBalance, account, setAccount, setGrindBalance }}>
+      <Router>
+        <Header />
+        <Routes>
+          <Route
+            path="/"
+            element={
+              <Home
+                projects={projects}
+                setProjects={setProjects}
+                handleAddProject={handleAddProject}
               />
-              <Route path="/notifications" element={<Notifications />} />
-              <Route path="/profile" element={<Profile />} />
-              <Route path="/missions" element={<Missions />} />
-              <Route path="/lottery" element={<NotificationWen projects={projects} />} />
-              <Route path="/add-project" element={<AddProject onAddProject={handleAddProject} />} />
-            </Routes>
-          </Router>
-        </GrindContext.Provider>
+            }
+          />
+          <Route path="/notifications" element={<Notifications />} />
+          <Route path="/profile" element={<Profile />} />
+          <Route path="/missions" element={<Missions />} />
+          <Route path="/lottery" element={<NotificationWen projects={projects} />} />
+          <Route path="/add-project" element={<AddProject onAddProject={handleAddProject} />} />
+        </Routes>
+      </Router>
+    </GrindContext.Provider>
+  );
+}
+
+function App() {
+  return (
+    <WagmiProvider config={config}>
+      <QueryClientProvider client={queryClient}>
+        <AppContent />
       </QueryClientProvider>
-    </WagmiConfig>
+    </WagmiProvider>
   );
 }
 
